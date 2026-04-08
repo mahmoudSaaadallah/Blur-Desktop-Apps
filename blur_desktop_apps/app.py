@@ -167,6 +167,7 @@ class BlurDesktopApp:
             window = self.available_windows[index]
             self.protected_windows[window.hwnd] = window
         self.overlay_manager.sync_targets({hwnd: info.display_name for hwnd, info in self.protected_windows.items()})
+        self.overlay_manager.update()
         self.refresh_window_list()
         self.status_var.set(f"Selected {len(self.protected_windows)} windows for privacy protection.")
 
@@ -186,11 +187,13 @@ class BlurDesktopApp:
 
     def set_privacy_mode(self, enabled: bool) -> None:
         self.overlay_manager.set_enabled(enabled)
+        self.overlay_manager.update()
         self.privacy_var.set("Privacy mode is ON" if enabled else "Privacy mode is OFF")
         self.status_var.set("Protected windows are blurred in the background." if enabled else "Blur overlays are temporarily disabled.")
 
     def toggle_privacy_mode(self) -> None:
         enabled = self.overlay_manager.toggle()
+        self.overlay_manager.update()
         self.privacy_var.set("Privacy mode is ON" if enabled else "Privacy mode is OFF")
         self.status_var.set("Protected windows are blurred in the background." if enabled else "Blur overlays are temporarily disabled.")
 
@@ -245,6 +248,7 @@ class BlurDesktopApp:
 
         self.protected_windows[window.hwnd] = window
         self.overlay_manager.sync_targets({hwnd: info.display_name for hwnd, info in self.protected_windows.items()})
+        self.overlay_manager.update()
         self.refresh_window_list()
         self.status_var.set(f"Added {window.display_name} to the protected list.")
 

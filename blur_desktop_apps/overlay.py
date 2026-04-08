@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import tkinter as tk
-from ctypes import POINTER, Structure, byref, c_int, c_size_t, c_void_p, pointer, sizeof, windll
-from ctypes.wintypes import BOOL, DWORD, HWND, RECT
+from ctypes import Structure, byref, c_int, c_size_t, c_void_p, cast, pointer, sizeof, windll
+from ctypes.wintypes import DWORD, HWND
 
 from blur_desktop_apps import windows
 
@@ -11,9 +11,7 @@ user32 = windll.user32
 
 
 GWL_EXSTYLE = -20
-WS_EX_LAYERED = 0x00080000
 WS_EX_TOOLWINDOW = 0x00000080
-WS_EX_TRANSPARENT = 0x00000020
 WS_EX_NOACTIVATE = 0x08000000
 SWP_NOACTIVATE = 0x0010
 SWP_SHOWWINDOW = 0x0040
@@ -22,7 +20,6 @@ SWP_NOOWNERZORDER = 0x0200
 SWP_NOZORDER = 0x0004
 
 WCA_ACCENT_POLICY = 19
-ACCENT_DISABLED = 0
 ACCENT_ENABLE_BLURBEHIND = 3
 ACCENT_ENABLE_ACRYLICBLURBEHIND = 4
 
@@ -55,7 +52,16 @@ class WindowOverlay:
         self.window.withdraw()
         self.window.overrideredirect(True)
         self.window.attributes("-topmost", True)
+        self.window.attributes("-alpha", 0.88)
         self.window.configure(bg="#101010")
+
+        self.window.grid_columnconfigure(0, weight=1)
+        self.window.grid_rowconfigure(0, weight=1)
+
+        self.content = tk.Frame(self.window, bg="#101010")
+        self.content.grid(row=0, column=0, sticky="nsew")
+        self.content.grid_columnconfigure(0, weight=1)
+        self.content.grid_rowconfigure(1, weight=1)
 
         self.badge = tk.Label(
             self.window,
@@ -67,6 +73,24 @@ class WindowOverlay:
             font=("Segoe UI", 10, "bold"),
         )
         self.badge.place(relx=1.0, x=-18, y=18, anchor="ne")
+
+        self.center_title = tk.Label(
+            self.content,
+            text="Privacy Blur Enabled",
+            bg="#101010",
+            fg="#f5f5f5",
+            font=("Segoe UI", 20, "bold"),
+        )
+        self.center_title.grid(row=0, column=0, pady=(42, 8))
+
+        self.center_subtitle = tk.Label(
+            self.content,
+            text="This window is hidden until you focus it again.",
+            bg="#101010",
+            fg="#d6d6d6",
+            font=("Segoe UI", 12),
+        )
+        self.center_subtitle.grid(row=1, column=0, sticky="n")
 
         self.window.update_idletasks()
         self.hwnd = self.window.winfo_id()
@@ -83,6 +107,7 @@ class WindowOverlay:
 
         self.window.geometry(f"{width}x{height}+{left}+{top}")
         self.window.deiconify()
+        self.window.lift()
         user32.SetWindowPos(
             self.hwnd,
             HWND(-1),
@@ -118,27 +143,28 @@ class WindowOverlay:
         get_window_long = getattr(user32, "GetWindowLongPtrW", user32.GetWindowLongW)
         set_window_long = getattr(user32, "SetWindowLongPtrW", user32.SetWindowLongW)
         ex_style = get_window_long(self.hwnd, GWL_EXSTYLE)
-        ex_style |= WS_EX_LAYERED | WS_EX_TOOLWINDOW | WS_EX_TRANSPARENT | WS_EX_NOACTIVATE
+        ex_style |= WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE
         set_window_long(self.hwnd, GWL_EXSTYLE, ex_style)
 
     def _apply_blur(self) -> None:
         accent = ACCENT_POLICY(
             AccentState=ACCENT_ENABLE_ACRYLICBLURBEHIND,
             AccentFlags=2,
-            GradientColor=_rgba_to_abgr(220, 12, 12, 12),
+            GradientColor=_rgba_to_abgr(235, 10, 10, 10),
             AnimationId=0,
         )
         data = WINDOWCOMPOSITIONATTRIBDATA(
             Attribute=WCA_ACCENT_POLICY,
-            Data=c_void_p.from_buffer(pointer(accent)),
+            Data=cast(pointer(accent), c_void_p),
             SizeOfData=sizeof(accent),
         )
 
         if not getattr(user32, "SetWindowCompositionAttribute", None):
-            accent.AccentState = ACCENT_ENABLE_BLURBEHIND
             return
 
-        user32.SetWindowCompositionAttribute(self.hwnd, byref(data))
+        if not user32.SetWindowCompositionAttribute(self.hwnd, byref(data)):
+            accent.AccentState = ACCENT_ENABLE_BLURBEHIND
+            user32.SetWindowCompositionAttribute(self.hwnd, byref(data))
 
 
 class OverlayManager:
