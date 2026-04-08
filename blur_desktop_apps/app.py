@@ -107,20 +107,37 @@ class BlurDesktopApp:
 
         controls = ttk.Frame(body, padding=(18, 0))
         controls.grid(row=1, column=1, sticky="ns")
+        controls.columnconfigure(0, weight=1)
 
         ttk.Button(controls, text="Add ->", command=self.add_selected_windows).grid(row=0, column=0, sticky="ew", pady=(12, 8))
         ttk.Button(controls, text="<- Remove", command=self.remove_selected_windows).grid(row=1, column=0, sticky="ew", pady=8)
         ttk.Button(controls, text="Pick Active App", command=self.pick_foreground_window).grid(row=2, column=0, sticky="ew", pady=(24, 8))
         ttk.Label(controls, textvariable=self.blur_strength_label_var).grid(row=3, column=0, sticky="w", pady=(20, 4))
-        blur_scale = ttk.Scale(
-            controls,
+        slider_frame = ttk.Frame(controls)
+        slider_frame.grid(row=4, column=0, sticky="ew", pady=(0, 8))
+        slider_frame.columnconfigure(0, weight=1)
+
+        blur_scale = tk.Scale(
+            slider_frame,
             from_=0,
             to=100,
-            orient="horizontal",
+            orient=tk.HORIZONTAL,
             variable=self.blur_strength_var,
             command=self.on_blur_strength_changed,
+            length=220,
+            resolution=1,
+            showvalue=True,
+            sliderlength=24,
+            width=18,
+            highlightthickness=0,
+            bd=0,
+            relief=tk.FLAT,
+            bg="#f4f4f4",
+            fg="#222222",
+            troughcolor="#d0d7de",
+            activebackground="#0b5cad",
         )
-        blur_scale.grid(row=4, column=0, sticky="ew", pady=(0, 12))
+        blur_scale.grid(row=0, column=0, sticky="ew")
         ttk.Label(controls, text="0 = clear, 100 = very dark", foreground="#666666").grid(row=5, column=0, sticky="w", pady=(0, 8))
         ttk.Button(controls, text="Enable Blur", command=lambda: self.set_privacy_mode(True)).grid(row=6, column=0, sticky="ew", pady=8)
         ttk.Button(controls, text="Disable Blur", command=lambda: self.set_privacy_mode(False)).grid(row=7, column=0, sticky="ew", pady=8)
