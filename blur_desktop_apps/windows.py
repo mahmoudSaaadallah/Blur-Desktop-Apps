@@ -1,0 +1,140 @@
+from __future__ import annotations
+
+from ctypes import WINFUNCTYPE, byref, c_uint, create_unicode_buffer, sizeof, windll
+from ctypes.wintypes import BOOL, DWORD, HWND, LPARAM
+from dataclasses import dataclass
+from pathlib import Path
+
+
+user32 = windll.user32
+kernel32 = windll.kernel32
+
+try:
+    dwmapi = windll.dwmapi
+except OSError:
+    dwmapi = None
+
+
+GWL_EXSTYLE = -20
+PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+WS_EX_TOOLWINDOW = 0x00000080
+DWMWA_CLOAKED = 14
+
+
+EnumWindowsProc = WINFUNCTYPE(BOOL, HWND, LPARAM)
+
+
+@dataclass(frozen=True)
+class WindowInfo:
+    hwnd: int
+    title: str
+    process_name: str
+    class_name: str
+
+    @property
+    def display_name(self) -> str:
+        title = self.title.strip() or "Untitled window"
+        process = self.process_name or "unknown-process"
+        return f"{title} [{process}]"
+
+
+def set_dpi_awareness() -> None:
+    try:
+        windll.shcore.SetProcessDpiAwareness(2)
+        return
+    except (AttributeError, OSError):
+        pass
+
+    try:
+        user32.SetProcessDPIAware()
+    except OSError:
+        pass
+
+
+def list_visible_windows() -> list[WindowInfo]:
+    windows: list[WindowInfo] = []
+
+    @EnumWindowsProc
+    def enum_windows_callback(hwnd: int, _lparam: int) -> bool:
+        if not user32.IsWindowVisible(hwnd):
+            return True
+
+        if _is_tool_window(hwnd) or _is_cloaked(hwnd):
+            return True
+
+        title = _get_window_text(hwnd).strip()
+        if not title:
+            return True
+
+        windows.append(
+            WindowInfo(
+                hwnd=hwnd,
+                title=title,
+                process_name=_get_process_name(hwnd),
+                class_name=_get_class_name(hwnd),
+            )
+        )
+        return True
+
+    user32.EnumWindows(enum_windows_callback, 0)
+    windows.sort(key=lambda item: item.display_name.lower())
+    return windows
+
+
+def is_window(hwnd: int) -> bool:
+    return bool(user32.IsWindow(hwnd))
+
+
+def get_foreground_window() -> int:
+    return int(user32.GetForegroundWindow())
+
+
+def _get_window_text(hwnd: int) -> str:
+    length = user32.GetWindowTextLengthW(hwnd)
+    if length <= 0:
+        return ""
+    buffer = create_unicode_buffer(length + 1)
+    user32.GetWindowTextW(hwnd, buffer, len(buffer))
+    return buffer.value
+
+
+def _get_class_name(hwnd: int) -> str:
+    buffer = create_unicode_buffer(256)
+    user32.GetClassNameW(hwnd, buffer, len(buffer))
+    return buffer.value
+
+
+def _is_tool_window(hwnd: int) -> bool:
+    ex_style = user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
+    return bool(ex_style & WS_EX_TOOLWINDOW)
+
+
+def _is_cloaked(hwnd: int) -> bool:
+    if dwmapi is None:
+        return False
+
+    cloaked = DWORD()
+    result = dwmapi.DwmGetWindowAttribute(hwnd, DWMWA_CLOAKED, byref(cloaked), c_uint(sizeof(cloaked)))
+    if result != 0:
+        return False
+    return bool(cloaked.value)
+
+
+def _get_process_name(hwnd: int) -> str:
+    process_id = DWORD()
+    user32.GetWindowThreadProcessId(hwnd, byref(process_id))
+    if process_id.value == 0:
+        return ""
+
+    process_handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, process_id.value)
+    if not process_handle:
+        return ""
+
+    try:
+        buffer_size = DWORD(1024)
+        buffer = create_unicode_buffer(buffer_size.value)
+        if kernel32.QueryFullProcessImageNameW(process_handle, 0, buffer, byref(buffer_size)):
+            return Path(buffer.value).name
+        return ""
+    finally:
+        kernel32.CloseHandle(process_handle)
