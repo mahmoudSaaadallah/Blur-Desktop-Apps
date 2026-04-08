@@ -14,7 +14,11 @@ user32 = windows.user32
 GWL_EXSTYLE = -20
 WS_EX_TOOLWINDOW = 0x00000080
 WS_EX_NOACTIVATE = 0x08000000
+WS_EX_TRANSPARENT = 0x00000020
+SWP_NOSIZE = 0x0001
+SWP_NOMOVE = 0x0002
 SWP_NOACTIVATE = 0x0010
+SWP_FRAMECHANGED = 0x0020
 SWP_SHOWWINDOW = 0x0040
 SWP_HIDEWINDOW = 0x0080
 SWP_NOOWNERZORDER = 0x0200
@@ -48,6 +52,7 @@ class WindowOverlay:
         target_hwnd: int,
         title: str,
         blur_strength: int = 60,
+        click_through: bool = False,
         on_reveal_requested: Callable[[int], None] | None = None,
     ) -> None:
         self.root = root
@@ -55,6 +60,7 @@ class WindowOverlay:
         self.title = title
         self.visible = False
         self.blur_strength = _clamp_strength(blur_strength)
+        self.click_through = click_through
         self.on_reveal_requested = on_reveal_requested
 
         self.window = tk.Toplevel(root)
@@ -104,6 +110,7 @@ class WindowOverlay:
         self.window.update_idletasks()
         self.hwnd = _get_tk_frame_handle(self.window)
         self._configure_window_style()
+        self.set_click_through(self.click_through)
         self.set_blur_strength(self.blur_strength)
 
     def show_over(self, rect: tuple[int, int, int, int]) -> None:
@@ -158,12 +165,37 @@ class WindowOverlay:
         self.center_subtitle.configure(bg=theme.background, fg=theme.subtitle_color)
         self._apply_blur(theme.accent_alpha, theme.accent_color)
 
+    def set_click_through(self, click_through: bool) -> None:
+        self.click_through = bool(click_through)
+        self._configure_window_style()
+        if self.click_through:
+            self._unbind_reveal_handlers()
+            self.center_subtitle.configure(text="Clicks pass through to the app while the blur stays on.")
+            for widget in (self.window, self.content, self.badge, self.center_title, self.center_subtitle):
+                widget.configure(cursor="arrow")
+        else:
+            self._bind_reveal_handlers()
+            self.center_subtitle.configure(text="Click anywhere on this cover to reveal the app.")
+
     def _configure_window_style(self) -> None:
         get_window_long = getattr(user32, "GetWindowLongPtrW", user32.GetWindowLongW)
         set_window_long = getattr(user32, "SetWindowLongPtrW", user32.SetWindowLongW)
         ex_style = get_window_long(self.hwnd, GWL_EXSTYLE)
         ex_style |= WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE
+        if self.click_through:
+            ex_style |= WS_EX_TRANSPARENT
+        else:
+            ex_style &= ~WS_EX_TRANSPARENT
         set_window_long(self.hwnd, GWL_EXSTYLE, ex_style)
+        user32.SetWindowPos(
+            self.hwnd,
+            0,
+            0,
+            0,
+            0,
+            0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_FRAMECHANGED,
+        )
 
     def _apply_blur(self, accent_alpha: int, accent_color: tuple[int, int, int]) -> None:
         accent = ACCENT_POLICY(
@@ -191,6 +223,10 @@ class WindowOverlay:
             widget.bind("<Button-1>", self._handle_click)
             widget.configure(cursor="hand2")
 
+    def _unbind_reveal_handlers(self) -> None:
+        for widget in (self.window, self.content, self.badge, self.center_title, self.center_subtitle):
+            widget.unbind("<Button-1>")
+
     def _handle_click(self, _event: tk.Event) -> str | None:
         if self.on_reveal_requested is not None:
             self.on_reveal_requested(self.target_hwnd)
@@ -210,6 +246,7 @@ class OverlayManager:
         self.root = root
         self.enabled = True
         self.blur_strength = 60
+        self.click_through_enabled = False
         self.target_titles: dict[int, str] = {}
         self.overlays: dict[int, WindowOverlay] = {}
         self.on_reveal_requested = on_reveal_requested
@@ -240,6 +277,14 @@ class OverlayManager:
         self.blur_strength = _clamp_strength(blur_strength)
         for overlay in self.overlays.values():
             overlay.set_blur_strength(self.blur_strength)
+
+    def set_click_through(self, enabled: bool) -> None:
+        self.click_through_enabled = bool(enabled)
+        if self.click_through_enabled:
+            self.temporarily_revealed_hwnd = None
+            self.reveal_became_foreground = False
+        for overlay in self.overlays.values():
+            overlay.set_click_through(self.click_through_enabled)
 
     def reveal_temporarily(self, hwnd: int) -> None:
         if hwnd not in self.overlays:
@@ -295,7 +340,7 @@ class OverlayManager:
                     overlay.hide()
                 continue
 
-            if foreground == hwnd:
+            if foreground == hwnd and not self.click_through_enabled:
                 overlay = self.overlays.get(hwnd)
                 if overlay is not None:
                     overlay.hide()
@@ -328,6 +373,7 @@ class OverlayManager:
             hwnd,
             title,
             blur_strength=self.blur_strength,
+            click_through=self.click_through_enabled,
             on_reveal_requested=self.on_reveal_requested,
         )
 

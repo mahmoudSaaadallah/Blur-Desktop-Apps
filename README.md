@@ -21,6 +21,7 @@ The app currently includes:
 9. A polished desktop-style control panel with clearer sections, counts, actions, and status feedback.
 10. More reliable minimize-and-restore handling so protected windows keep their blur behavior after coming back.
 11. Protected apps stay remembered while minimized, then receive a fresh blur layer when they return.
+12. Optional click-through blur mode so you can interact with a protected app without uncovering it.
 
 ## Shortcuts
 
