@@ -19,6 +19,8 @@ GWL_EXSTYLE = -20
 PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
 WS_EX_TOOLWINDOW = 0x00000080
 DWMWA_CLOAKED = 14
+SW_RESTORE = 9
+SW_SHOW = 5
 
 
 EnumWindowsProc = WINFUNCTYPE(BOOL, HWND, LPARAM)
@@ -132,6 +134,20 @@ def get_window_rect(hwnd: int) -> tuple[int, int, int, int] | None:
     if not user32.GetWindowRect(hwnd, byref(rect)):
         return None
     return rect.left, rect.top, rect.right, rect.bottom
+
+
+def activate_window(hwnd: int) -> bool:
+    if not is_window(hwnd):
+        return False
+
+    if is_window_minimized(hwnd):
+        user32.ShowWindow(hwnd, SW_RESTORE)
+    else:
+        user32.ShowWindow(hwnd, SW_SHOW)
+
+    user32.BringWindowToTop(hwnd)
+    user32.SetForegroundWindow(hwnd)
+    return get_foreground_window() == hwnd
 
 
 def _get_window_text(hwnd: int) -> str:

@@ -16,6 +16,7 @@ The app currently includes:
 4. Global shortcuts so you can keep privacy mode under your fingers while coding.
 5. Quick app picking from the current foreground window, so you can protect the app you are actively using.
 6. Adjustable blur degree from `0%` up to `100% very dark`.
+7. Click-to-reveal behavior so a blurred app can be temporarily uncovered with one click and blurred again when you move away.
 
 ## Shortcuts
 

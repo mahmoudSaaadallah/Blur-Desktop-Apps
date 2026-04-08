@@ -6,6 +6,7 @@ from tkinter import ttk
 from blur_desktop_apps.hotkeys import GlobalHotkeyManager, MOD_ALT, MOD_CONTROL
 from blur_desktop_apps.overlay import OverlayManager
 from blur_desktop_apps.windows import (
+    activate_window,
     WindowInfo,
     get_foreground_window,
     get_window_info,
@@ -26,7 +27,7 @@ class BlurDesktopApp:
 
         self.available_windows: list[WindowInfo] = []
         self.protected_windows: dict[int, WindowInfo] = {}
-        self.overlay_manager = OverlayManager(self.root)
+        self.overlay_manager = OverlayManager(self.root, on_reveal_requested=self.reveal_window_from_overlay)
         self.poll_interval_ms = 180
         self.list_refresh_interval_ms = 3000
         self.pending_foreground_pick = False
@@ -147,7 +148,8 @@ class BlurDesktopApp:
         help_text = (
             "Double-click a window to add or remove it.\n"
             "Or use Pick Active App, switch to the target app, and it will be added automatically.\n"
-            "Use the blur degree slider to go from 0% clear up to 100% very dark."
+            "Use the blur degree slider to go from 0% clear up to 100% very dark.\n"
+            "Click a blurred cover to reveal that app, then click elsewhere to blur it again."
         )
         ttk.Label(
             self.root,
@@ -345,6 +347,17 @@ class BlurDesktopApp:
         self.overlay_manager.set_blur_strength(strength)
         self.overlay_manager.update()
         self.status_var.set(f"Blur degree updated to {strength}%.")
+
+    def reveal_window_from_overlay(self, hwnd: int) -> None:
+        info = self.protected_windows.get(hwnd)
+        windows_title = info.display_name if info is not None else "the protected app"
+        self.overlay_manager.reveal_temporarily(hwnd)
+        activated = activate_window(hwnd)
+        self.overlay_manager.update()
+        if activated:
+            self.status_var.set(f"Revealed {windows_title}. Click another app to blur it again.")
+        else:
+            self.status_var.set(f"Revealed {windows_title}. If it does not focus automatically, click inside it once.")
 
     @staticmethod
     def _format_action_name(action: str) -> str:

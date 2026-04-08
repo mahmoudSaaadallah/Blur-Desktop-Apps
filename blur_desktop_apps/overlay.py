@@ -3,6 +3,7 @@ from __future__ import annotations
 import tkinter as tk
 from ctypes import Structure, byref, c_int, c_size_t, c_void_p, cast, pointer, sizeof, windll
 from ctypes.wintypes import DWORD, HWND
+from typing import Callable
 
 from blur_desktop_apps import windows
 
@@ -42,12 +43,20 @@ class WINDOWCOMPOSITIONATTRIBDATA(Structure):
 
 
 class WindowOverlay:
-    def __init__(self, root: tk.Tk, target_hwnd: int, title: str, blur_strength: int = 60) -> None:
+    def __init__(
+        self,
+        root: tk.Tk,
+        target_hwnd: int,
+        title: str,
+        blur_strength: int = 60,
+        on_reveal_requested: Callable[[int], None] | None = None,
+    ) -> None:
         self.root = root
         self.target_hwnd = target_hwnd
         self.title = title
         self.visible = False
         self.blur_strength = _clamp_strength(blur_strength)
+        self.on_reveal_requested = on_reveal_requested
 
         self.window = tk.Toplevel(root)
         self.window.withdraw()
@@ -85,12 +94,14 @@ class WindowOverlay:
 
         self.center_subtitle = tk.Label(
             self.content,
-            text="This window is hidden until you focus it again.",
+            text="Click anywhere on this cover to reveal the app.",
             bg="#101010",
             fg="#d6d6d6",
             font=("Segoe UI", 12),
         )
         self.center_subtitle.grid(row=1, column=0, sticky="n")
+
+        self._bind_reveal_handlers()
 
         self.window.update_idletasks()
         self.hwnd = self.window.winfo_id()
@@ -177,13 +188,27 @@ class WindowOverlay:
             accent.AccentState = ACCENT_ENABLE_BLURBEHIND
             user32.SetWindowCompositionAttribute(self.hwnd, byref(data))
 
+    def _bind_reveal_handlers(self) -> None:
+        widgets = [self.window, self.content, self.badge, self.center_title, self.center_subtitle]
+        for widget in widgets:
+            widget.bind("<Button-1>", self._handle_click)
+            widget.configure(cursor="hand2")
+
+    def _handle_click(self, _event: tk.Event) -> str | None:
+        if self.on_reveal_requested is not None:
+            self.on_reveal_requested(self.target_hwnd)
+        return "break"
+
 
 class OverlayManager:
-    def __init__(self, root: tk.Tk) -> None:
+    def __init__(self, root: tk.Tk, on_reveal_requested: Callable[[int], None] | None = None) -> None:
         self.root = root
         self.enabled = True
         self.blur_strength = 60
         self.overlays: dict[int, WindowOverlay] = {}
+        self.on_reveal_requested = on_reveal_requested
+        self.temporarily_revealed_hwnd: int | None = None
+        self.reveal_became_foreground = False
 
     def sync_targets(self, targets: dict[int, str]) -> None:
         current = set(self.overlays)
@@ -193,7 +218,13 @@ class OverlayManager:
             self.remove_target(hwnd)
 
         for hwnd in requested - current:
-            self.overlays[hwnd] = WindowOverlay(self.root, hwnd, targets[hwnd], blur_strength=self.blur_strength)
+            self.overlays[hwnd] = WindowOverlay(
+                self.root,
+                hwnd,
+                targets[hwnd],
+                blur_strength=self.blur_strength,
+                on_reveal_requested=self.on_reveal_requested,
+            )
 
     def set_enabled(self, enabled: bool) -> None:
         self.enabled = enabled
@@ -206,6 +237,13 @@ class OverlayManager:
         for overlay in self.overlays.values():
             overlay.set_blur_strength(self.blur_strength)
 
+    def reveal_temporarily(self, hwnd: int) -> None:
+        if hwnd not in self.overlays:
+            return
+        self.temporarily_revealed_hwnd = hwnd
+        self.reveal_became_foreground = False
+        self.overlays[hwnd].hide()
+
     def toggle(self) -> bool:
         self.set_enabled(not self.enabled)
         return self.enabled
@@ -213,6 +251,16 @@ class OverlayManager:
     def update(self) -> list[int]:
         stale: list[int] = []
         foreground = windows.get_foreground_window()
+
+        if self.temporarily_revealed_hwnd is not None:
+            if self.temporarily_revealed_hwnd not in self.overlays:
+                self.temporarily_revealed_hwnd = None
+                self.reveal_became_foreground = False
+            elif foreground == self.temporarily_revealed_hwnd:
+                self.reveal_became_foreground = True
+            elif self.reveal_became_foreground and foreground not in (0, self.temporarily_revealed_hwnd):
+                self.temporarily_revealed_hwnd = None
+                self.reveal_became_foreground = False
 
         for hwnd, overlay in list(self.overlays.items()):
             if not windows.is_window(hwnd):
@@ -227,6 +275,10 @@ class OverlayManager:
 
             rect = windows.get_window_rect(hwnd)
             if rect is None:
+                overlay.hide()
+                continue
+
+            if self.temporarily_revealed_hwnd == hwnd:
                 overlay.hide()
                 continue
 
