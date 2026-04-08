@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import tkinter as tk
-from ctypes import Structure, byref, c_int, c_size_t, c_void_p, cast, pointer, sizeof
-from ctypes.wintypes import DWORD, HWND
+from ctypes import WINFUNCTYPE, Structure, byref, c_int, c_longlong, c_size_t, c_void_p, cast, pointer, sizeof
+from ctypes.wintypes import DWORD, HWND, LPARAM, UINT, WPARAM
 from typing import Callable
 
 from blur_desktop_apps import windows
@@ -12,6 +12,7 @@ user32 = windows.user32
 
 
 GWL_EXSTYLE = -20
+GWLP_WNDPROC = -4
 WS_EX_TOOLWINDOW = 0x00000080
 WS_EX_NOACTIVATE = 0x08000000
 WS_EX_TRANSPARENT = 0x00000020
@@ -26,6 +27,13 @@ SWP_NOZORDER = 0x0004
 WCA_ACCENT_POLICY = 19
 ACCENT_ENABLE_BLURBEHIND = 3
 ACCENT_ENABLE_ACRYLICBLURBEHIND = 4
+WM_NCHITTEST = 0x0084
+HTTRANSPARENT = -1
+
+
+WindowProc = WINFUNCTYPE(c_longlong, HWND, UINT, WPARAM, LPARAM)
+user32.CallWindowProcW.argtypes = [c_void_p, HWND, UINT, WPARAM, LPARAM]
+user32.CallWindowProcW.restype = c_longlong
 
 
 class ACCENT_POLICY(Structure):
@@ -62,6 +70,8 @@ class WindowOverlay:
         self.blur_strength = _clamp_strength(blur_strength)
         self.click_through = click_through
         self.on_reveal_requested = on_reveal_requested
+        self._original_wnd_proc: int | None = None
+        self._subclass_wnd_proc: WindowProc | None = None
 
         self.window = tk.Toplevel(root)
         self.window.withdraw()
@@ -109,6 +119,7 @@ class WindowOverlay:
 
         self.window.update_idletasks()
         self.hwnd = _get_tk_frame_handle(self.window)
+        self._install_window_proc_hook()
         self._configure_window_style()
         self.set_click_through(self.click_through)
         self.set_blur_strength(self.blur_strength)
@@ -152,6 +163,7 @@ class WindowOverlay:
         self.visible = False
 
     def destroy(self) -> None:
+        self._restore_window_proc_hook()
         self.window.destroy()
 
     def set_blur_strength(self, blur_strength: int) -> None:
@@ -216,6 +228,29 @@ class WindowOverlay:
         if not user32.SetWindowCompositionAttribute(self.hwnd, byref(data)):
             accent.AccentState = ACCENT_ENABLE_BLURBEHIND
             user32.SetWindowCompositionAttribute(self.hwnd, byref(data))
+
+    def _install_window_proc_hook(self) -> None:
+        get_window_long = getattr(user32, "GetWindowLongPtrW", user32.GetWindowLongW)
+        set_window_long = getattr(user32, "SetWindowLongPtrW", user32.SetWindowLongW)
+        self._original_wnd_proc = int(get_window_long(self.hwnd, GWLP_WNDPROC))
+
+        @WindowProc
+        def subclass_wnd_proc(hwnd: HWND, msg: int, w_param: int, l_param: int) -> int:
+            if msg == WM_NCHITTEST and self.click_through:
+                return HTTRANSPARENT
+            return int(user32.CallWindowProcW(self._original_wnd_proc, hwnd, msg, w_param, l_param))
+
+        self._subclass_wnd_proc = subclass_wnd_proc
+        set_window_long(self.hwnd, GWLP_WNDPROC, cast(self._subclass_wnd_proc, c_void_p).value)
+
+    def _restore_window_proc_hook(self) -> None:
+        if self._original_wnd_proc is None or not windows.is_window(self.hwnd):
+            return
+
+        set_window_long = getattr(user32, "SetWindowLongPtrW", user32.SetWindowLongW)
+        set_window_long(self.hwnd, GWLP_WNDPROC, self._original_wnd_proc)
+        self._original_wnd_proc = None
+        self._subclass_wnd_proc = None
 
     def _bind_reveal_handlers(self) -> None:
         widgets = [self.window, self.content, self.badge, self.center_title, self.center_subtitle]
