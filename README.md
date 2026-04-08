@@ -18,6 +18,7 @@ The app currently includes:
 6. Adjustable blur degree from `0%` up to `100% very dark`.
 7. Click-to-reveal behavior so a blurred app can be temporarily uncovered with one click and blurred again when you move away.
 8. Overlay z-order tracking so the privacy layer stays attached to its selected app instead of floating above unrelated windows.
+9. A polished desktop-style control panel with clearer sections, counts, actions, and status feedback.
 
 ## Shortcuts
 
