@@ -438,7 +438,7 @@ class BlurDesktopApp:
             selectforeground=LIST_SELECT_TEXT,
         )
 
-    def refresh_window_list(self) -> None:
+    def refresh_window_list(self, *, update_status: bool = True) -> None:
         current_selection = set(self.protected_windows)
         selected_available_hwnds = {
             self.available_windows[index].hwnd
@@ -465,7 +465,8 @@ class BlurDesktopApp:
             if window.hwnd in selected_protected_hwnds:
                 self.protected_list.selection_set(index)
         self._update_counts()
-        self.status_var.set(f"Found {len(self.available_windows)} open windows.")
+        if update_status:
+            self.status_var.set(f"Found {len(self.available_windows)} open windows.")
 
     def add_selected_windows(self) -> None:
         selected_indexes = list(self.available_list.curselection())
@@ -573,9 +574,11 @@ class BlurDesktopApp:
             self.protected_list.insert(tk.END, window.display_name)
 
     def toggle_control_panel(self) -> None:
-        if self.root.state() == "withdrawn":
+        if self.root.state() in {"withdrawn", "iconic"}:
             self.root.deiconify()
+            self.root.state("normal")
             self.root.lift()
+            self.root.focus_force()
             self.status_var.set("Control panel is visible.")
             return
 
@@ -595,7 +598,7 @@ class BlurDesktopApp:
 
     def auto_refresh_window_list(self) -> None:
         if self.root.winfo_exists() and self.root.state() != "withdrawn" and not self.pending_foreground_pick:
-            self.refresh_window_list()
+            self.refresh_window_list(update_status=False)
         self.root.after(self.list_refresh_interval_ms, self.auto_refresh_window_list)
 
     def _finish_foreground_pick(self) -> None:
