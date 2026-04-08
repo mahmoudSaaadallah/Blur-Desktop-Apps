@@ -15,7 +15,7 @@ The app currently includes:
 3. Automatic unblur for the active protected window so you can still read and interact with it normally.
 4. Global shortcuts so you can keep privacy mode under your fingers while coding.
 5. Quick app picking from the current foreground window, so you can protect the app you are actively using.
-6. Adjustable blur strength so you can make the privacy cover lighter or stronger.
+6. Adjustable blur degree from `0%` up to `100% very dark`.
 
 ## Shortcuts
 

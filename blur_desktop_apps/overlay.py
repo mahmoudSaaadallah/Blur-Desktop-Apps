@@ -42,7 +42,7 @@ class WINDOWCOMPOSITIONATTRIBDATA(Structure):
 
 
 class WindowOverlay:
-    def __init__(self, root: tk.Tk, target_hwnd: int, title: str, blur_strength: int = 70) -> None:
+    def __init__(self, root: tk.Tk, target_hwnd: int, title: str, blur_strength: int = 60) -> None:
         self.root = root
         self.target_hwnd = target_hwnd
         self.title = title
@@ -182,7 +182,7 @@ class OverlayManager:
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
         self.enabled = True
-        self.blur_strength = 70
+        self.blur_strength = 60
         self.overlays: dict[int, WindowOverlay] = {}
 
     def sync_targets(self, targets: dict[int, str]) -> None:
@@ -253,7 +253,7 @@ def _rgba_to_abgr(alpha: int, red: int, green: int, blue: int) -> int:
 
 
 def _clamp_strength(blur_strength: int) -> int:
-    return max(10, min(100, int(blur_strength)))
+    return max(0, min(100, int(blur_strength)))
 
 
 class _StrengthTheme:
@@ -277,11 +277,11 @@ class _StrengthTheme:
 
 def _build_strength_theme(blur_strength: int) -> _StrengthTheme:
     strength = _clamp_strength(blur_strength)
-    ratio = (strength - 10) / 90
-    window_alpha = 0.42 + (ratio * 0.52)
-    accent_alpha = int(110 + (ratio * 135))
-    shade = int(42 - (ratio * 34))
-    subtitle_shade = int(220 - (ratio * 60))
+    ratio = strength / 100
+    window_alpha = 0.02 + (ratio * 0.94)
+    accent_alpha = int(ratio * 240)
+    shade = int(58 - (ratio * 52))
+    subtitle_shade = int(235 - (ratio * 95))
     background = f"#{shade:02x}{shade:02x}{shade:02x}"
     title_color = "#f5f5f5"
     subtitle_color = f"#{subtitle_shade:02x}{subtitle_shade:02x}{subtitle_shade:02x}"
