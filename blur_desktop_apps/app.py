@@ -3,6 +3,7 @@ from __future__ import annotations
 import tkinter as tk
 from tkinter import ttk
 
+from blur_desktop_apps.overlay import OverlayManager
 from blur_desktop_apps.windows import WindowInfo, list_visible_windows, set_dpi_awareness
 
 
@@ -13,16 +14,21 @@ class BlurDesktopApp:
         self.root.title("Blur Desktop Apps")
         self.root.geometry("980x560")
         self.root.minsize(920, 520)
+        self.root.protocol("WM_DELETE_WINDOW", self.on_close)
 
         self.available_windows: list[WindowInfo] = []
         self.protected_windows: dict[int, WindowInfo] = {}
+        self.overlay_manager = OverlayManager(self.root)
+        self.poll_interval_ms = 180
 
         self.available_list = tk.Listbox(self.root, selectmode=tk.EXTENDED, exportselection=False)
         self.protected_list = tk.Listbox(self.root, selectmode=tk.EXTENDED, exportselection=False)
         self.status_var = tk.StringVar(value="Choose the windows you want to protect.")
+        self.privacy_var = tk.StringVar(value="Privacy mode is ON")
 
         self._build_layout()
         self.refresh_window_list()
+        self.root.after(self.poll_interval_ms, self.poll_overlays)
 
     def run(self) -> None:
         self.root.mainloop()
@@ -73,12 +79,14 @@ class BlurDesktopApp:
 
         ttk.Button(controls, text="Add ->", command=self.add_selected_windows).grid(row=0, column=0, sticky="ew", pady=(12, 8))
         ttk.Button(controls, text="<- Remove", command=self.remove_selected_windows).grid(row=1, column=0, sticky="ew", pady=8)
-        ttk.Button(controls, text="Refresh", command=self.refresh_window_list).grid(row=2, column=0, sticky="ew", pady=8)
-        ttk.Button(controls, text="Quit", command=self.root.destroy).grid(row=3, column=0, sticky="ew", pady=(24, 0))
+        ttk.Button(controls, text="Enable Blur", command=lambda: self.set_privacy_mode(True)).grid(row=2, column=0, sticky="ew", pady=(24, 8))
+        ttk.Button(controls, text="Disable Blur", command=lambda: self.set_privacy_mode(False)).grid(row=3, column=0, sticky="ew", pady=8)
+        ttk.Button(controls, text="Refresh", command=self.refresh_window_list).grid(row=4, column=0, sticky="ew", pady=8)
+        ttk.Button(controls, text="Quit", command=self.on_close).grid(row=5, column=0, sticky="ew", pady=(24, 0))
 
         help_text = (
-            "This first version helps you choose the apps you want to protect.\n"
-            "The blur overlay and keyboard shortcuts will be added in the next steps."
+            "Selected windows stay blurred only while they are in the background.\n"
+            "When you focus a protected app, its blur is removed so you can use it normally."
         )
         ttk.Label(
             self.root,
@@ -88,12 +96,14 @@ class BlurDesktopApp:
             padding=(24, 0, 24, 8),
         ).grid(row=2, column=0, sticky="w")
 
-        status = ttk.Label(self.root, textvariable=self.status_var, padding=(24, 0, 24, 18), foreground="#0b5cad")
-        status.grid(row=3, column=0, sticky="w")
+        ttk.Label(self.root, textvariable=self.privacy_var, padding=(24, 0, 24, 0), foreground="#006a52").grid(row=3, column=0, sticky="w")
+        ttk.Label(self.root, textvariable=self.status_var, padding=(24, 0, 24, 18), foreground="#0b5cad").grid(row=4, column=0, sticky="w")
 
     def refresh_window_list(self) -> None:
         current_selection = set(self.protected_windows)
-        self.available_windows = [window for window in list_visible_windows() if window.hwnd not in current_selection]
+        self.root.update_idletasks()
+        self.available_windows = list_visible_windows(excluded_hwnds={self.root.winfo_id()})
+        self.available_windows = [window for window in self.available_windows if window.hwnd not in current_selection]
         self.available_list.delete(0, tk.END)
         for window in self.available_windows:
             self.available_list.insert(tk.END, window.display_name)
@@ -104,6 +114,7 @@ class BlurDesktopApp:
         for index in self.available_list.curselection():
             window = self.available_windows[index]
             self.protected_windows[window.hwnd] = window
+        self.overlay_manager.sync_targets({hwnd: info.display_name for hwnd, info in self.protected_windows.items()})
         self.refresh_window_list()
         self.status_var.set(f"Selected {len(self.protected_windows)} windows for privacy protection.")
 
@@ -115,9 +126,29 @@ class BlurDesktopApp:
 
         protected = list(self.protected_windows.values())
         for index in reversed(indexes):
-            self.protected_windows.pop(protected[index].hwnd, None)
+            window = protected[index]
+            self.protected_windows.pop(window.hwnd, None)
+            self.overlay_manager.remove_target(window.hwnd)
         self.refresh_window_list()
         self.status_var.set(f"Selected {len(self.protected_windows)} windows for privacy protection.")
+
+    def set_privacy_mode(self, enabled: bool) -> None:
+        self.overlay_manager.set_enabled(enabled)
+        self.privacy_var.set("Privacy mode is ON" if enabled else "Privacy mode is OFF")
+        self.status_var.set("Protected windows are blurred in the background." if enabled else "Blur overlays are temporarily disabled.")
+
+    def poll_overlays(self) -> None:
+        stale_hwnds = self.overlay_manager.update()
+        if stale_hwnds:
+            for hwnd in stale_hwnds:
+                self.protected_windows.pop(hwnd, None)
+            self._refresh_protected_list()
+            self.status_var.set("Closed windows were removed from the protected list.")
+        self.root.after(self.poll_interval_ms, self.poll_overlays)
+
+    def on_close(self) -> None:
+        self.overlay_manager.clear()
+        self.root.destroy()
 
     def _refresh_protected_list(self) -> None:
         self.protected_list.delete(0, tk.END)

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from ctypes import WINFUNCTYPE, byref, c_uint, create_unicode_buffer, sizeof, windll
-from ctypes.wintypes import BOOL, DWORD, HWND, LPARAM
+from ctypes.wintypes import BOOL, DWORD, HWND, LPARAM, RECT
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -51,11 +51,15 @@ def set_dpi_awareness() -> None:
         pass
 
 
-def list_visible_windows() -> list[WindowInfo]:
+def list_visible_windows(excluded_hwnds: set[int] | None = None) -> list[WindowInfo]:
     windows: list[WindowInfo] = []
+    excluded_hwnds = excluded_hwnds or set()
 
     @EnumWindowsProc
     def enum_windows_callback(hwnd: int, _lparam: int) -> bool:
+        if hwnd in excluded_hwnds:
+            return True
+
         if not user32.IsWindowVisible(hwnd):
             return True
 
@@ -87,6 +91,21 @@ def is_window(hwnd: int) -> bool:
 
 def get_foreground_window() -> int:
     return int(user32.GetForegroundWindow())
+
+
+def is_window_visible(hwnd: int) -> bool:
+    return bool(user32.IsWindowVisible(hwnd))
+
+
+def is_window_minimized(hwnd: int) -> bool:
+    return bool(user32.IsIconic(hwnd))
+
+
+def get_window_rect(hwnd: int) -> tuple[int, int, int, int] | None:
+    rect = RECT()
+    if not user32.GetWindowRect(hwnd, byref(rect)):
+        return None
+    return rect.left, rect.top, rect.right, rect.bottom
 
 
 def _get_window_text(hwnd: int) -> str:
