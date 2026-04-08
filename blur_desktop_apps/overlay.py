@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 import tkinter as tk
-from ctypes import Structure, byref, c_int, c_size_t, c_void_p, cast, pointer, sizeof, windll
+from ctypes import Structure, byref, c_int, c_size_t, c_void_p, cast, pointer, sizeof
 from ctypes.wintypes import DWORD, HWND
 from typing import Callable
 
 from blur_desktop_apps import windows
 
 
-user32 = windll.user32
+user32 = windows.user32
 
 
 GWL_EXSTYLE = -20
@@ -19,8 +19,6 @@ SWP_SHOWWINDOW = 0x0040
 SWP_HIDEWINDOW = 0x0080
 SWP_NOOWNERZORDER = 0x0200
 SWP_NOZORDER = 0x0004
-GW_HWNDPREV = 3
-
 WCA_ACCENT_POLICY = 19
 ACCENT_ENABLE_BLURBEHIND = 3
 ACCENT_ENABLE_ACRYLICBLURBEHIND = 4
@@ -104,7 +102,7 @@ class WindowOverlay:
         self._bind_reveal_handlers()
 
         self.window.update_idletasks()
-        self.hwnd = self.window.winfo_id()
+        self.hwnd = _get_tk_frame_handle(self.window)
         self._configure_window_style()
         self.set_blur_strength(self.blur_strength)
 
@@ -199,9 +197,9 @@ class WindowOverlay:
         return "break"
 
     def _get_insert_after_handle(self) -> HWND:
-        window_above_target = user32.GetWindow(HWND(self.target_hwnd), GW_HWNDPREV)
+        window_above_target = windows.get_window_above(self.target_hwnd)
         if window_above_target == self.hwnd:
-            window_above_target = user32.GetWindow(HWND(self.hwnd), GW_HWNDPREV)
+            window_above_target = windows.get_window_above(self.hwnd)
         if window_above_target:
             return HWND(window_above_target)
         return HWND(0)
@@ -353,3 +351,10 @@ def _build_strength_theme(blur_strength: int) -> _StrengthTheme:
         subtitle_color=subtitle_color,
         accent_color=accent_color,
     )
+
+
+def _get_tk_frame_handle(window: tk.Misc) -> int:
+    try:
+        return int(str(window.frame()), 16)
+    except (AttributeError, TypeError, ValueError):
+        return int(window.winfo_id())

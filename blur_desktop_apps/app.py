@@ -50,6 +50,8 @@ class BlurDesktopApp:
         self.root.minsize(1080, 680)
         self.root.configure(bg=APP_BG)
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
+        self.root.update_idletasks()
+        self.root_hwnd = self._get_tk_frame_handle(self.root)
 
         self.available_windows: list[WindowInfo] = []
         self.protected_windows: dict[int, WindowInfo] = {}
@@ -450,7 +452,7 @@ class BlurDesktopApp:
             if index < len(protected_values)
         }
         self.root.update_idletasks()
-        self.available_windows = list_visible_windows(excluded_hwnds={self.root.winfo_id()})
+        self.available_windows = list_visible_windows(excluded_hwnds={self.root_hwnd})
         self.available_windows = [window for window in self.available_windows if window.hwnd not in current_selection]
         self.available_list.delete(0, tk.END)
         for index, window in enumerate(self.available_windows):
@@ -578,7 +580,7 @@ class BlurDesktopApp:
             return
 
         foreground = get_foreground_window()
-        if foreground and foreground != self.root.winfo_id():
+        if foreground and foreground != self.root_hwnd:
             title = get_window_title(foreground)
             if title:
                 self.status_var.set(f"Control panel hidden while you work in {title}.")
@@ -612,7 +614,7 @@ class BlurDesktopApp:
         if window is None:
             return None
 
-        if window.title == self.root.title():
+        if window.hwnd == self.root_hwnd:
             return None
 
         return window
@@ -658,3 +660,10 @@ class BlurDesktopApp:
             "quit_app": "Ctrl+Alt+Q",
         }
         return labels.get(action, action)
+
+    @staticmethod
+    def _get_tk_frame_handle(window: tk.Misc) -> int:
+        try:
+            return int(str(window.frame()), 16)
+        except (AttributeError, TypeError, ValueError):
+            return int(window.winfo_id())

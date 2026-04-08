@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from ctypes import WINFUNCTYPE, byref, c_uint, create_unicode_buffer, sizeof, windll
-from ctypes.wintypes import BOOL, DWORD, HWND, LPARAM, RECT
+from ctypes import WINFUNCTYPE, byref, c_int, c_longlong, c_uint, c_void_p, create_unicode_buffer, sizeof, windll
+from ctypes.wintypes import BOOL, DWORD, HWND, LPARAM, RECT, UINT
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -21,9 +21,53 @@ WS_EX_TOOLWINDOW = 0x00000080
 DWMWA_CLOAKED = 14
 SW_RESTORE = 9
 SW_SHOW = 5
+GW_HWNDPREV = 3
 
 
 EnumWindowsProc = WINFUNCTYPE(BOOL, HWND, LPARAM)
+
+
+user32.EnumWindows.argtypes = [EnumWindowsProc, LPARAM]
+user32.EnumWindows.restype = BOOL
+user32.IsWindowVisible.argtypes = [HWND]
+user32.IsWindowVisible.restype = BOOL
+user32.IsWindow.argtypes = [HWND]
+user32.IsWindow.restype = BOOL
+user32.IsIconic.argtypes = [HWND]
+user32.IsIconic.restype = BOOL
+user32.GetForegroundWindow.restype = HWND
+user32.GetWindowTextLengthW.argtypes = [HWND]
+user32.GetWindowTextLengthW.restype = c_int
+user32.GetWindowTextW.argtypes = [HWND, c_void_p, c_int]
+user32.GetWindowTextW.restype = c_int
+user32.GetClassNameW.argtypes = [HWND, c_void_p, c_int]
+user32.GetClassNameW.restype = c_int
+user32.GetWindowLongW.argtypes = [HWND, c_int]
+user32.GetWindowLongW.restype = c_int
+user32.GetWindowThreadProcessId.argtypes = [HWND, c_void_p]
+user32.GetWindowThreadProcessId.restype = DWORD
+user32.GetWindowRect.argtypes = [HWND, c_void_p]
+user32.GetWindowRect.restype = BOOL
+user32.GetWindow.argtypes = [HWND, UINT]
+user32.GetWindow.restype = HWND
+user32.SetWindowPos.argtypes = [HWND, HWND, c_int, c_int, c_int, c_int, UINT]
+user32.SetWindowPos.restype = BOOL
+user32.ShowWindow.argtypes = [HWND, c_int]
+user32.ShowWindow.restype = BOOL
+user32.BringWindowToTop.argtypes = [HWND]
+user32.BringWindowToTop.restype = BOOL
+user32.SetForegroundWindow.argtypes = [HWND]
+user32.SetForegroundWindow.restype = BOOL
+
+get_window_long_ptr = getattr(user32, "GetWindowLongPtrW", None)
+if get_window_long_ptr is not None:
+    get_window_long_ptr.argtypes = [HWND, c_int]
+    get_window_long_ptr.restype = c_longlong
+
+set_window_long_ptr = getattr(user32, "SetWindowLongPtrW", None)
+if set_window_long_ptr is not None:
+    set_window_long_ptr.argtypes = [HWND, c_int, c_longlong]
+    set_window_long_ptr.restype = c_longlong
 
 
 @dataclass(frozen=True)
@@ -134,6 +178,11 @@ def get_window_rect(hwnd: int) -> tuple[int, int, int, int] | None:
     if not user32.GetWindowRect(hwnd, byref(rect)):
         return None
     return rect.left, rect.top, rect.right, rect.bottom
+
+
+def get_window_above(hwnd: int) -> int:
+    above = user32.GetWindow(HWND(hwnd), GW_HWNDPREV)
+    return int(above or 0)
 
 
 def activate_window(hwnd: int) -> bool:
