@@ -3,8 +3,9 @@ from __future__ import annotations
 import tkinter as tk
 from tkinter import ttk
 
+from blur_desktop_apps.hotkeys import GlobalHotkeyManager, MOD_ALT, MOD_CONTROL
 from blur_desktop_apps.overlay import OverlayManager
-from blur_desktop_apps.windows import WindowInfo, list_visible_windows, set_dpi_awareness
+from blur_desktop_apps.windows import WindowInfo, get_foreground_window, get_window_title, list_visible_windows, set_dpi_awareness
 
 
 class BlurDesktopApp:
@@ -20,15 +21,27 @@ class BlurDesktopApp:
         self.protected_windows: dict[int, WindowInfo] = {}
         self.overlay_manager = OverlayManager(self.root)
         self.poll_interval_ms = 180
+        self.hotkeys = GlobalHotkeyManager(
+            {
+                "toggle_privacy": (MOD_CONTROL | MOD_ALT, ord("B")),
+                "toggle_panel": (MOD_CONTROL | MOD_ALT, ord("P")),
+                "refresh_windows": (MOD_CONTROL | MOD_ALT, ord("R")),
+                "quit_app": (MOD_CONTROL | MOD_ALT, ord("Q")),
+            }
+        )
 
         self.available_list = tk.Listbox(self.root, selectmode=tk.EXTENDED, exportselection=False)
         self.protected_list = tk.Listbox(self.root, selectmode=tk.EXTENDED, exportselection=False)
         self.status_var = tk.StringVar(value="Choose the windows you want to protect.")
         self.privacy_var = tk.StringVar(value="Privacy mode is ON")
+        self.hotkeys_var = tk.StringVar(value="Shortcuts: Ctrl+Alt+B toggle blur, Ctrl+Alt+P show or hide panel, Ctrl+Alt+R refresh, Ctrl+Alt+Q quit")
 
         self._build_layout()
         self.refresh_window_list()
+        self.hotkeys.start()
         self.root.after(self.poll_interval_ms, self.poll_overlays)
+        self.root.after(120, self.poll_hotkeys)
+        self.root.after(400, self._update_hotkey_status)
 
     def run(self) -> None:
         self.root.mainloop()
@@ -96,8 +109,9 @@ class BlurDesktopApp:
             padding=(24, 0, 24, 8),
         ).grid(row=2, column=0, sticky="w")
 
-        ttk.Label(self.root, textvariable=self.privacy_var, padding=(24, 0, 24, 0), foreground="#006a52").grid(row=3, column=0, sticky="w")
-        ttk.Label(self.root, textvariable=self.status_var, padding=(24, 0, 24, 18), foreground="#0b5cad").grid(row=4, column=0, sticky="w")
+        ttk.Label(self.root, textvariable=self.hotkeys_var, padding=(24, 0, 24, 4), foreground="#5c2d91").grid(row=3, column=0, sticky="w")
+        ttk.Label(self.root, textvariable=self.privacy_var, padding=(24, 0, 24, 0), foreground="#006a52").grid(row=4, column=0, sticky="w")
+        ttk.Label(self.root, textvariable=self.status_var, padding=(24, 0, 24, 18), foreground="#0b5cad").grid(row=5, column=0, sticky="w")
 
     def refresh_window_list(self) -> None:
         current_selection = set(self.protected_windows)
@@ -137,6 +151,24 @@ class BlurDesktopApp:
         self.privacy_var.set("Privacy mode is ON" if enabled else "Privacy mode is OFF")
         self.status_var.set("Protected windows are blurred in the background." if enabled else "Blur overlays are temporarily disabled.")
 
+    def toggle_privacy_mode(self) -> None:
+        enabled = self.overlay_manager.toggle()
+        self.privacy_var.set("Privacy mode is ON" if enabled else "Privacy mode is OFF")
+        self.status_var.set("Protected windows are blurred in the background." if enabled else "Blur overlays are temporarily disabled.")
+
+    def poll_hotkeys(self) -> None:
+        for action in self.hotkeys.drain_events():
+            if action == "toggle_privacy":
+                self.toggle_privacy_mode()
+            elif action == "toggle_panel":
+                self.toggle_control_panel()
+            elif action == "refresh_windows":
+                self.refresh_window_list()
+            elif action == "quit_app":
+                self.on_close()
+                return
+        self.root.after(120, self.poll_hotkeys)
+
     def poll_overlays(self) -> None:
         stale_hwnds = self.overlay_manager.update()
         if stale_hwnds:
@@ -148,6 +180,7 @@ class BlurDesktopApp:
 
     def on_close(self) -> None:
         self.overlay_manager.clear()
+        self.hotkeys.stop()
         self.root.destroy()
 
     def _refresh_protected_list(self) -> None:
@@ -156,3 +189,34 @@ class BlurDesktopApp:
         self.protected_windows = {window.hwnd: window for window in protected}
         for window in protected:
             self.protected_list.insert(tk.END, window.display_name)
+
+    def toggle_control_panel(self) -> None:
+        if self.root.state() == "withdrawn":
+            self.root.deiconify()
+            self.root.lift()
+            self.status_var.set("Control panel is visible.")
+            return
+
+        foreground = get_foreground_window()
+        if foreground and foreground != self.root.winfo_id():
+            title = get_window_title(foreground)
+            if title:
+                self.status_var.set(f"Control panel hidden while you work in {title}.")
+        self.root.withdraw()
+
+    def _update_hotkey_status(self) -> None:
+        if not self.hotkeys.failed_actions:
+            return
+
+        failed = ", ".join(self._format_action_name(action) for action in self.hotkeys.failed_actions)
+        self.status_var.set(f"Some shortcuts were not registered because they are already in use: {failed}.")
+
+    @staticmethod
+    def _format_action_name(action: str) -> str:
+        labels = {
+            "toggle_privacy": "Ctrl+Alt+B",
+            "toggle_panel": "Ctrl+Alt+P",
+            "refresh_windows": "Ctrl+Alt+R",
+            "quit_app": "Ctrl+Alt+Q",
+        }
+        return labels.get(action, action)

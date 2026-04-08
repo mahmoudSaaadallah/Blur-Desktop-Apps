@@ -93,6 +93,10 @@ def get_foreground_window() -> int:
     return int(user32.GetForegroundWindow())
 
 
+def get_window_title(hwnd: int) -> str:
+    return _get_window_text(hwnd).strip()
+
+
 def is_window_visible(hwnd: int) -> bool:
     return bool(user32.IsWindowVisible(hwnd))
 
