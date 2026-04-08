@@ -70,11 +70,9 @@ class BlurDesktopApp:
         )
 
         self.blur_strength_var = tk.IntVar(value=60)
-        self.click_through_var = tk.BooleanVar(value=False)
         self.status_var = tk.StringVar(value="Choose the windows you want to protect.")
         self.privacy_var = tk.StringVar(value="Privacy mode is ON")
         self.blur_strength_label_var = tk.StringVar(value="Blur degree: 60%")
-        self.interaction_tip_var = tk.StringVar(value="Tip: click a blurred cover to reveal that app, then click another app to blur it again.")
         self.hotkeys_var = tk.StringVar(
             value="Shortcuts: Ctrl+Alt+S protect active app, Ctrl+Alt+B toggle blur, Ctrl+Alt+P hide panel"
         )
@@ -91,7 +89,6 @@ class BlurDesktopApp:
 
         self._build_layout()
         self.overlay_manager.set_blur_strength(self.blur_strength_var.get())
-        self.overlay_manager.set_click_through(self.click_through_var.get())
         self._update_privacy_indicator(self.overlay_manager.enabled)
         self.refresh_window_list()
         self.hotkeys.start()
@@ -262,7 +259,7 @@ class BlurDesktopApp:
         )
         ttk.Label(
             footer,
-            textvariable=self.interaction_tip_var,
+            text="Tip: click a blurred cover to reveal that app, then click another app to blur it again.",
             style="StatusSubtle.TLabel",
         ).grid(row=1, column=1, sticky="w", pady=(8, 0))
 
@@ -378,52 +375,27 @@ class BlurDesktopApp:
             pady=(0, 14),
         )
 
-        click_through_toggle = tk.Checkbutton(
-            card,
-            text="Click through blur layer",
-            variable=self.click_through_var,
-            command=self.on_click_through_changed,
-            bg=CARD_BG,
-            fg=TEXT_PRIMARY,
-            activebackground=CARD_BG,
-            activeforeground=TEXT_PRIMARY,
-            selectcolor="#dff6f3",
-            font=("Segoe UI", 10, "bold"),
-            anchor="w",
-            highlightthickness=0,
-            bd=0,
-        )
-        click_through_toggle.grid(row=10, column=0, sticky="ew", pady=(0, 4))
-
-        ttk.Label(
-            card,
-            text="Keep the blur visible and send your mouse clicks into the protected app underneath.",
-            style="SliderHint.TLabel",
-            wraplength=228,
-            justify="left",
-        ).grid(row=11, column=0, sticky="w", pady=(0, 14))
-
         ttk.Button(card, text="Enable Blur", style="Accent.TButton", command=lambda: self.set_privacy_mode(True)).grid(
-            row=12,
+            row=10,
             column=0,
             sticky="ew",
             pady=6,
         )
         ttk.Button(card, text="Disable Blur", style="Warn.TButton", command=lambda: self.set_privacy_mode(False)).grid(
-            row=13,
+            row=11,
             column=0,
             sticky="ew",
             pady=6,
         )
         ttk.Button(card, text="Refresh Windows", style="Soft.TButton", command=self.refresh_window_list).grid(
-            row=14,
+            row=12,
             column=0,
             sticky="ew",
             pady=(6, 18),
         )
 
         shortcuts_box = tk.Frame(card, bg=SURFACE_SOFT, highlightbackground=CARD_BORDER, highlightthickness=1, bd=0, padx=12, pady=12)
-        shortcuts_box.grid(row=15, column=0, sticky="ew")
+        shortcuts_box.grid(row=13, column=0, sticky="ew")
         ttk.Label(shortcuts_box, text="Keyboard Shortcuts", style="CardTitle.TLabel").grid(row=0, column=0, sticky="w")
         ttk.Label(shortcuts_box, text="Ctrl+Alt+S  Protect active app", style="CardHint.TLabel").grid(row=1, column=0, sticky="w", pady=(10, 2))
         ttk.Label(shortcuts_box, text="Ctrl+Alt+B  Toggle privacy mode", style="CardHint.TLabel").grid(row=2, column=0, sticky="w", pady=2)
@@ -431,7 +403,7 @@ class BlurDesktopApp:
         ttk.Label(shortcuts_box, text="Ctrl+Alt+R  Refresh open windows", style="CardHint.TLabel").grid(row=4, column=0, sticky="w", pady=2)
         ttk.Label(shortcuts_box, text="Ctrl+Alt+Q  Quit the app", style="CardHint.TLabel").grid(row=5, column=0, sticky="w", pady=2)
 
-        ttk.Button(card, text="Quit", style="Warn.TButton", command=self.on_close).grid(row=16, column=0, sticky="ew", pady=(18, 0))
+        ttk.Button(card, text="Quit", style="Warn.TButton", command=self.on_close).grid(row=14, column=0, sticky="ew", pady=(18, 0))
 
     def _create_card(self, parent: tk.Misc, *, width: int | None = None, padding: int = 20) -> tk.Frame:
         card = tk.Frame(parent, bg=CARD_BG, highlightbackground=CARD_BORDER, highlightthickness=1, bd=0, padx=padding, pady=padding)
@@ -657,17 +629,6 @@ class BlurDesktopApp:
         self.overlay_manager.set_blur_strength(strength)
         self.overlay_manager.update()
         self.status_var.set(f"Blur degree updated to {strength}%.")
-
-    def on_click_through_changed(self) -> None:
-        enabled = self.click_through_var.get()
-        self.overlay_manager.set_click_through(enabled)
-        self.overlay_manager.update()
-        if enabled:
-            self.interaction_tip_var.set("Tip: click through the blur to use the protected app without uncovering it.")
-            self.status_var.set("Click-through blur is ON. The blur stays visible while your clicks go into the protected app.")
-        else:
-            self.interaction_tip_var.set("Tip: click a blurred cover to reveal that app, then click another app to blur it again.")
-            self.status_var.set("Click-through blur is OFF. Clicking the blur will reveal the protected app.")
 
     def reveal_window_from_overlay(self, hwnd: int) -> None:
         info = self.protected_windows.get(hwnd)
