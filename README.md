@@ -17,6 +17,7 @@ The app currently includes:
 5. Quick app picking from the current foreground window, so you can protect the app you are actively using.
 6. Adjustable blur degree from `0%` up to `100% very dark`.
 7. Click-to-reveal behavior so a blurred app can be temporarily uncovered with one click and blurred again when you move away.
+8. Overlay z-order tracking so the privacy layer stays attached to its selected app instead of floating above unrelated windows.
 
 ## Shortcuts
 

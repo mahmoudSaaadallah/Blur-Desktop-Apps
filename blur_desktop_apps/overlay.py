@@ -19,6 +19,7 @@ SWP_SHOWWINDOW = 0x0040
 SWP_HIDEWINDOW = 0x0080
 SWP_NOOWNERZORDER = 0x0200
 SWP_NOZORDER = 0x0004
+GW_HWNDPREV = 3
 
 WCA_ACCENT_POLICY = 19
 ACCENT_ENABLE_BLURBEHIND = 3
@@ -61,7 +62,6 @@ class WindowOverlay:
         self.window = tk.Toplevel(root)
         self.window.withdraw()
         self.window.overrideredirect(True)
-        self.window.attributes("-topmost", True)
         self.window.configure(bg="#101010")
 
         self.window.grid_columnconfigure(0, weight=1)
@@ -118,10 +118,9 @@ class WindowOverlay:
 
         self.window.geometry(f"{width}x{height}+{left}+{top}")
         self.window.deiconify()
-        self.window.lift()
         user32.SetWindowPos(
             self.hwnd,
-            HWND(-1),
+            self._get_insert_after_handle(),
             left,
             top,
             width,
@@ -198,6 +197,14 @@ class WindowOverlay:
         if self.on_reveal_requested is not None:
             self.on_reveal_requested(self.target_hwnd)
         return "break"
+
+    def _get_insert_after_handle(self) -> HWND:
+        window_above_target = user32.GetWindow(HWND(self.target_hwnd), GW_HWNDPREV)
+        if window_above_target == self.hwnd:
+            window_above_target = user32.GetWindow(HWND(self.hwnd), GW_HWNDPREV)
+        if window_above_target:
+            return HWND(window_above_target)
+        return HWND(0)
 
 
 class OverlayManager:
