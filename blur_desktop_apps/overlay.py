@@ -211,6 +211,7 @@ class OverlayManager:
         self.enabled = True
         self.blur_strength = 60
         self.overlays: dict[int, WindowOverlay] = {}
+        self.window_states: dict[int, tuple[bool, bool]] = {}
         self.on_reveal_requested = on_reveal_requested
         self.temporarily_revealed_hwnd: int | None = None
         self.reveal_became_foreground = False
@@ -223,13 +224,8 @@ class OverlayManager:
             self.remove_target(hwnd)
 
         for hwnd in requested - current:
-            self.overlays[hwnd] = WindowOverlay(
-                self.root,
-                hwnd,
-                targets[hwnd],
-                blur_strength=self.blur_strength,
-                on_reveal_requested=self.on_reveal_requested,
-            )
+            self.overlays[hwnd] = self._create_overlay(hwnd, targets[hwnd])
+            self.window_states[hwnd] = (windows.is_window_visible(hwnd), windows.is_window_minimized(hwnd))
 
     def set_enabled(self, enabled: bool) -> None:
         self.enabled = enabled
@@ -272,9 +268,23 @@ class OverlayManager:
                 stale.append(hwnd)
                 overlay.destroy()
                 self.overlays.pop(hwnd, None)
+                self.window_states.pop(hwnd, None)
                 continue
 
-            if not self.enabled or not windows.is_window_visible(hwnd) or windows.is_window_minimized(hwnd):
+            is_visible = windows.is_window_visible(hwnd)
+            is_minimized = windows.is_window_minimized(hwnd)
+            previous_state = self.window_states.get(hwnd)
+            self.window_states[hwnd] = (is_visible, is_minimized)
+
+            if self.temporarily_revealed_hwnd == hwnd and (not is_visible or is_minimized):
+                self.temporarily_revealed_hwnd = None
+                self.reveal_became_foreground = False
+
+            if previous_state is not None and (previous_state[1] or not previous_state[0]) and is_visible and not is_minimized:
+                self._recreate_overlay(hwnd)
+                overlay = self.overlays[hwnd]
+
+            if not self.enabled or not is_visible or is_minimized:
                 overlay.hide()
                 continue
 
@@ -299,10 +309,32 @@ class OverlayManager:
         overlay = self.overlays.pop(hwnd, None)
         if overlay is not None:
             overlay.destroy()
+        self.window_states.pop(hwnd, None)
+        if self.temporarily_revealed_hwnd == hwnd:
+            self.temporarily_revealed_hwnd = None
+            self.reveal_became_foreground = False
 
     def clear(self) -> None:
         for hwnd in list(self.overlays):
             self.remove_target(hwnd)
+
+    def _create_overlay(self, hwnd: int, title: str) -> WindowOverlay:
+        return WindowOverlay(
+            self.root,
+            hwnd,
+            title,
+            blur_strength=self.blur_strength,
+            on_reveal_requested=self.on_reveal_requested,
+        )
+
+    def _recreate_overlay(self, hwnd: int) -> None:
+        overlay = self.overlays.get(hwnd)
+        if overlay is None:
+            return
+
+        title = overlay.title
+        overlay.destroy()
+        self.overlays[hwnd] = self._create_overlay(hwnd, title)
 
 
 def _rgba_to_abgr(alpha: int, red: int, green: int, blue: int) -> int:
