@@ -85,6 +85,28 @@ def list_visible_windows(excluded_hwnds: set[int] | None = None) -> list[WindowI
     return windows
 
 
+def get_window_info(hwnd: int) -> WindowInfo | None:
+    if not is_window(hwnd):
+        return None
+
+    if not user32.IsWindowVisible(hwnd):
+        return None
+
+    if _is_tool_window(hwnd) or _is_cloaked(hwnd):
+        return None
+
+    title = _get_window_text(hwnd).strip()
+    if not title:
+        return None
+
+    return WindowInfo(
+        hwnd=hwnd,
+        title=title,
+        process_name=_get_process_name(hwnd),
+        class_name=_get_class_name(hwnd),
+    )
+
+
 def is_window(hwnd: int) -> bool:
     return bool(user32.IsWindow(hwnd))
 
