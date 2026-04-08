@@ -379,9 +379,9 @@ class _StrengthTheme:
 def _build_strength_theme(blur_strength: int) -> _StrengthTheme:
     strength = _clamp_strength(blur_strength)
     ratio = strength / 100
-    window_alpha = 0.01 + (ratio * 0.98)
+    window_alpha = 0.01 + (ratio * 0.985)
     accent_alpha = int(ratio * 255)
-    shade = int(84 - (ratio * 82))
+    shade = int(84 - (ratio * 84))
     subtitle_shade = int(238 - (ratio * 120))
     background = f"#{shade:02x}{shade:02x}{shade:02x}"
     title_color = "#f5f5f5"
