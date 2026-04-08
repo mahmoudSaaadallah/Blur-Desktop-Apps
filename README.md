@@ -20,6 +20,7 @@ The app currently includes:
 8. Overlay z-order tracking so the privacy layer stays attached to its selected app instead of floating above unrelated windows.
 9. A polished desktop-style control panel with clearer sections, counts, actions, and status feedback.
 10. More reliable minimize-and-restore handling so protected windows keep their blur behavior after coming back.
+11. Protected apps stay remembered while minimized, then receive a fresh blur layer when they return.
 
 ## Shortcuts
 

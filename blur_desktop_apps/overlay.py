@@ -210,22 +210,25 @@ class OverlayManager:
         self.root = root
         self.enabled = True
         self.blur_strength = 60
+        self.target_titles: dict[int, str] = {}
         self.overlays: dict[int, WindowOverlay] = {}
-        self.window_states: dict[int, tuple[bool, bool]] = {}
         self.on_reveal_requested = on_reveal_requested
         self.temporarily_revealed_hwnd: int | None = None
         self.reveal_became_foreground = False
 
     def sync_targets(self, targets: dict[int, str]) -> None:
-        current = set(self.overlays)
+        current = set(self.target_titles)
         requested = set(targets)
 
         for hwnd in current - requested:
             self.remove_target(hwnd)
 
+        for hwnd in requested:
+            self.target_titles[hwnd] = targets[hwnd]
+
         for hwnd in requested - current:
-            self.overlays[hwnd] = self._create_overlay(hwnd, targets[hwnd])
-            self.window_states[hwnd] = (windows.is_window_visible(hwnd), windows.is_window_minimized(hwnd))
+            if windows.is_window(hwnd) and windows.is_window_visible(hwnd) and not windows.is_window_minimized(hwnd):
+                self.overlays[hwnd] = self._create_overlay(hwnd, targets[hwnd])
 
     def set_enabled(self, enabled: bool) -> None:
         self.enabled = enabled
@@ -254,7 +257,7 @@ class OverlayManager:
         foreground = windows.get_foreground_window()
 
         if self.temporarily_revealed_hwnd is not None:
-            if self.temporarily_revealed_hwnd not in self.overlays:
+            if self.temporarily_revealed_hwnd not in self.target_titles:
                 self.temporarily_revealed_hwnd = None
                 self.reveal_became_foreground = False
             elif foreground == self.temporarily_revealed_hwnd:
@@ -263,41 +266,44 @@ class OverlayManager:
                 self.temporarily_revealed_hwnd = None
                 self.reveal_became_foreground = False
 
-        for hwnd, overlay in list(self.overlays.items()):
+        for hwnd in list(self.target_titles):
             if not windows.is_window(hwnd):
                 stale.append(hwnd)
-                overlay.destroy()
-                self.overlays.pop(hwnd, None)
-                self.window_states.pop(hwnd, None)
+                self.remove_target(hwnd)
                 continue
 
             is_visible = windows.is_window_visible(hwnd)
             is_minimized = windows.is_window_minimized(hwnd)
-            previous_state = self.window_states.get(hwnd)
-            self.window_states[hwnd] = (is_visible, is_minimized)
 
             if self.temporarily_revealed_hwnd == hwnd and (not is_visible or is_minimized):
                 self.temporarily_revealed_hwnd = None
                 self.reveal_became_foreground = False
 
-            if previous_state is not None and (previous_state[1] or not previous_state[0]) and is_visible and not is_minimized:
-                self._recreate_overlay(hwnd)
-                overlay = self.overlays[hwnd]
-
-            if not self.enabled or not is_visible or is_minimized:
-                overlay.hide()
+            if not self.enabled:
+                overlay = self.overlays.get(hwnd)
+                if overlay is not None:
+                    overlay.hide()
                 continue
 
-            rect = windows.get_window_rect(hwnd)
-            if rect is None:
-                overlay.hide()
+            if not is_visible or is_minimized:
+                self._destroy_overlay(hwnd)
                 continue
 
             if self.temporarily_revealed_hwnd == hwnd:
-                overlay.hide()
+                overlay = self.overlays.get(hwnd)
+                if overlay is not None:
+                    overlay.hide()
                 continue
 
             if foreground == hwnd:
+                overlay = self.overlays.get(hwnd)
+                if overlay is not None:
+                    overlay.hide()
+                continue
+
+            overlay = self._ensure_overlay(hwnd)
+            rect = windows.get_window_rect(hwnd)
+            if rect is None:
                 overlay.hide()
                 continue
 
@@ -306,16 +312,14 @@ class OverlayManager:
         return stale
 
     def remove_target(self, hwnd: int) -> None:
-        overlay = self.overlays.pop(hwnd, None)
-        if overlay is not None:
-            overlay.destroy()
-        self.window_states.pop(hwnd, None)
+        self._destroy_overlay(hwnd)
+        self.target_titles.pop(hwnd, None)
         if self.temporarily_revealed_hwnd == hwnd:
             self.temporarily_revealed_hwnd = None
             self.reveal_became_foreground = False
 
     def clear(self) -> None:
-        for hwnd in list(self.overlays):
+        for hwnd in list(self.target_titles):
             self.remove_target(hwnd)
 
     def _create_overlay(self, hwnd: int, title: str) -> WindowOverlay:
@@ -327,14 +331,22 @@ class OverlayManager:
             on_reveal_requested=self.on_reveal_requested,
         )
 
-    def _recreate_overlay(self, hwnd: int) -> None:
+    def _ensure_overlay(self, hwnd: int) -> WindowOverlay:
+        overlay = self.overlays.get(hwnd)
+        if overlay is not None:
+            return overlay
+
+        overlay = self._create_overlay(hwnd, self.target_titles[hwnd])
+        self.overlays[hwnd] = overlay
+        return overlay
+
+    def _destroy_overlay(self, hwnd: int) -> None:
         overlay = self.overlays.get(hwnd)
         if overlay is None:
             return
 
-        title = overlay.title
         overlay.destroy()
-        self.overlays[hwnd] = self._create_overlay(hwnd, title)
+        self.overlays.pop(hwnd, None)
 
 
 def _rgba_to_abgr(alpha: int, red: int, green: int, blue: int) -> int:
@@ -367,10 +379,10 @@ class _StrengthTheme:
 def _build_strength_theme(blur_strength: int) -> _StrengthTheme:
     strength = _clamp_strength(blur_strength)
     ratio = strength / 100
-    window_alpha = 0.02 + (ratio * 0.94)
-    accent_alpha = int(ratio * 240)
-    shade = int(58 - (ratio * 52))
-    subtitle_shade = int(235 - (ratio * 95))
+    window_alpha = 0.01 + (ratio * 0.98)
+    accent_alpha = int(ratio * 255)
+    shade = int(84 - (ratio * 82))
+    subtitle_shade = int(238 - (ratio * 120))
     background = f"#{shade:02x}{shade:02x}{shade:02x}"
     title_color = "#f5f5f5"
     subtitle_color = f"#{subtitle_shade:02x}{subtitle_shade:02x}{subtitle_shade:02x}"
