@@ -42,17 +42,17 @@ class WINDOWCOMPOSITIONATTRIBDATA(Structure):
 
 
 class WindowOverlay:
-    def __init__(self, root: tk.Tk, target_hwnd: int, title: str) -> None:
+    def __init__(self, root: tk.Tk, target_hwnd: int, title: str, blur_strength: int = 70) -> None:
         self.root = root
         self.target_hwnd = target_hwnd
         self.title = title
         self.visible = False
+        self.blur_strength = _clamp_strength(blur_strength)
 
         self.window = tk.Toplevel(root)
         self.window.withdraw()
         self.window.overrideredirect(True)
         self.window.attributes("-topmost", True)
-        self.window.attributes("-alpha", 0.88)
         self.window.configure(bg="#101010")
 
         self.window.grid_columnconfigure(0, weight=1)
@@ -95,7 +95,7 @@ class WindowOverlay:
         self.window.update_idletasks()
         self.hwnd = self.window.winfo_id()
         self._configure_window_style()
-        self._apply_blur()
+        self.set_blur_strength(self.blur_strength)
 
     def show_over(self, rect: tuple[int, int, int, int]) -> None:
         left, top, right, bottom = rect
@@ -139,6 +139,17 @@ class WindowOverlay:
     def destroy(self) -> None:
         self.window.destroy()
 
+    def set_blur_strength(self, blur_strength: int) -> None:
+        self.blur_strength = _clamp_strength(blur_strength)
+        theme = _build_strength_theme(self.blur_strength)
+        self.window.attributes("-alpha", theme.window_alpha)
+        self.window.configure(bg=theme.background)
+        self.content.configure(bg=theme.background)
+        self.badge.configure(bg=theme.background)
+        self.center_title.configure(bg=theme.background, fg=theme.title_color)
+        self.center_subtitle.configure(bg=theme.background, fg=theme.subtitle_color)
+        self._apply_blur(theme.accent_alpha, theme.accent_color)
+
     def _configure_window_style(self) -> None:
         get_window_long = getattr(user32, "GetWindowLongPtrW", user32.GetWindowLongW)
         set_window_long = getattr(user32, "SetWindowLongPtrW", user32.SetWindowLongW)
@@ -146,11 +157,11 @@ class WindowOverlay:
         ex_style |= WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE
         set_window_long(self.hwnd, GWL_EXSTYLE, ex_style)
 
-    def _apply_blur(self) -> None:
+    def _apply_blur(self, accent_alpha: int, accent_color: tuple[int, int, int]) -> None:
         accent = ACCENT_POLICY(
             AccentState=ACCENT_ENABLE_ACRYLICBLURBEHIND,
             AccentFlags=2,
-            GradientColor=_rgba_to_abgr(235, 10, 10, 10),
+            GradientColor=_rgba_to_abgr(accent_alpha, *accent_color),
             AnimationId=0,
         )
         data = WINDOWCOMPOSITIONATTRIBDATA(
@@ -171,6 +182,7 @@ class OverlayManager:
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
         self.enabled = True
+        self.blur_strength = 70
         self.overlays: dict[int, WindowOverlay] = {}
 
     def sync_targets(self, targets: dict[int, str]) -> None:
@@ -181,13 +193,18 @@ class OverlayManager:
             self.remove_target(hwnd)
 
         for hwnd in requested - current:
-            self.overlays[hwnd] = WindowOverlay(self.root, hwnd, targets[hwnd])
+            self.overlays[hwnd] = WindowOverlay(self.root, hwnd, targets[hwnd], blur_strength=self.blur_strength)
 
     def set_enabled(self, enabled: bool) -> None:
         self.enabled = enabled
         if not enabled:
             for overlay in self.overlays.values():
                 overlay.hide()
+
+    def set_blur_strength(self, blur_strength: int) -> None:
+        self.blur_strength = _clamp_strength(blur_strength)
+        for overlay in self.overlays.values():
+            overlay.set_blur_strength(self.blur_strength)
 
     def toggle(self) -> bool:
         self.set_enabled(not self.enabled)
@@ -233,3 +250,47 @@ class OverlayManager:
 
 def _rgba_to_abgr(alpha: int, red: int, green: int, blue: int) -> int:
     return ((alpha & 0xFF) << 24) | ((blue & 0xFF) << 16) | ((green & 0xFF) << 8) | (red & 0xFF)
+
+
+def _clamp_strength(blur_strength: int) -> int:
+    return max(10, min(100, int(blur_strength)))
+
+
+class _StrengthTheme:
+    def __init__(
+        self,
+        *,
+        window_alpha: float,
+        accent_alpha: int,
+        background: str,
+        title_color: str,
+        subtitle_color: str,
+        accent_color: tuple[int, int, int],
+    ) -> None:
+        self.window_alpha = window_alpha
+        self.accent_alpha = accent_alpha
+        self.background = background
+        self.title_color = title_color
+        self.subtitle_color = subtitle_color
+        self.accent_color = accent_color
+
+
+def _build_strength_theme(blur_strength: int) -> _StrengthTheme:
+    strength = _clamp_strength(blur_strength)
+    ratio = (strength - 10) / 90
+    window_alpha = 0.42 + (ratio * 0.52)
+    accent_alpha = int(110 + (ratio * 135))
+    shade = int(42 - (ratio * 34))
+    subtitle_shade = int(220 - (ratio * 60))
+    background = f"#{shade:02x}{shade:02x}{shade:02x}"
+    title_color = "#f5f5f5"
+    subtitle_color = f"#{subtitle_shade:02x}{subtitle_shade:02x}{subtitle_shade:02x}"
+    accent_color = (shade, shade, shade)
+    return _StrengthTheme(
+        window_alpha=window_alpha,
+        accent_alpha=accent_alpha,
+        background=background,
+        title_color=title_color,
+        subtitle_color=subtitle_color,
+        accent_color=accent_color,
+    )

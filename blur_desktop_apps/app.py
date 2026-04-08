@@ -42,13 +42,16 @@ class BlurDesktopApp:
 
         self.available_list = tk.Listbox(self.root, selectmode=tk.EXTENDED, exportselection=False)
         self.protected_list = tk.Listbox(self.root, selectmode=tk.EXTENDED, exportselection=False)
+        self.blur_strength_var = tk.IntVar(value=70)
         self.status_var = tk.StringVar(value="Choose the windows you want to protect.")
         self.privacy_var = tk.StringVar(value="Privacy mode is ON")
+        self.blur_strength_label_var = tk.StringVar(value="Blur strength: 70%")
         self.hotkeys_var = tk.StringVar(
             value="Shortcuts: Ctrl+Alt+S protect active app, Ctrl+Alt+B toggle blur, Ctrl+Alt+P show or hide panel"
         )
 
         self._build_layout()
+        self.overlay_manager.set_blur_strength(self.blur_strength_var.get())
         self.refresh_window_list()
         self.hotkeys.start()
         self.root.after(self.poll_interval_ms, self.poll_overlays)
@@ -108,14 +111,25 @@ class BlurDesktopApp:
         ttk.Button(controls, text="Add ->", command=self.add_selected_windows).grid(row=0, column=0, sticky="ew", pady=(12, 8))
         ttk.Button(controls, text="<- Remove", command=self.remove_selected_windows).grid(row=1, column=0, sticky="ew", pady=8)
         ttk.Button(controls, text="Pick Active App", command=self.pick_foreground_window).grid(row=2, column=0, sticky="ew", pady=(24, 8))
-        ttk.Button(controls, text="Enable Blur", command=lambda: self.set_privacy_mode(True)).grid(row=3, column=0, sticky="ew", pady=8)
-        ttk.Button(controls, text="Disable Blur", command=lambda: self.set_privacy_mode(False)).grid(row=4, column=0, sticky="ew", pady=8)
-        ttk.Button(controls, text="Refresh", command=self.refresh_window_list).grid(row=5, column=0, sticky="ew", pady=8)
-        ttk.Button(controls, text="Quit", command=self.on_close).grid(row=6, column=0, sticky="ew", pady=(24, 0))
+        ttk.Label(controls, textvariable=self.blur_strength_label_var).grid(row=3, column=0, sticky="w", pady=(20, 4))
+        blur_scale = ttk.Scale(
+            controls,
+            from_=10,
+            to=100,
+            orient="horizontal",
+            variable=self.blur_strength_var,
+            command=self.on_blur_strength_changed,
+        )
+        blur_scale.grid(row=4, column=0, sticky="ew", pady=(0, 12))
+        ttk.Button(controls, text="Enable Blur", command=lambda: self.set_privacy_mode(True)).grid(row=5, column=0, sticky="ew", pady=8)
+        ttk.Button(controls, text="Disable Blur", command=lambda: self.set_privacy_mode(False)).grid(row=6, column=0, sticky="ew", pady=8)
+        ttk.Button(controls, text="Refresh", command=self.refresh_window_list).grid(row=7, column=0, sticky="ew", pady=8)
+        ttk.Button(controls, text="Quit", command=self.on_close).grid(row=8, column=0, sticky="ew", pady=(24, 0))
 
         help_text = (
             "Double-click a window to add or remove it.\n"
-            "Or use Pick Active App, switch to the target app, and it will be added automatically."
+            "Or use Pick Active App, switch to the target app, and it will be added automatically.\n"
+            "Use the blur strength slider to make the privacy cover lighter or stronger."
         )
         ttk.Label(
             self.root,
@@ -305,6 +319,14 @@ class BlurDesktopApp:
             return None
 
         return window
+
+    def on_blur_strength_changed(self, _value: str) -> None:
+        strength = int(round(float(_value)))
+        self.blur_strength_var.set(strength)
+        self.blur_strength_label_var.set(f"Blur strength: {strength}%")
+        self.overlay_manager.set_blur_strength(strength)
+        self.overlay_manager.update()
+        self.status_var.set(f"Blur strength updated to {strength}%.")
 
     @staticmethod
     def _format_action_name(action: str) -> str:
