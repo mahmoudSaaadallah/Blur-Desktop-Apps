@@ -3,6 +3,7 @@ from __future__ import annotations
 import tkinter as tk
 from ctypes import Structure, byref, c_int, c_size_t, c_void_p, cast, pointer, sizeof
 from ctypes.wintypes import DWORD, HWND
+from time import monotonic
 from typing import Callable
 
 from blur_desktop_apps import windows
@@ -22,6 +23,7 @@ SWP_NOZORDER = 0x0004
 WCA_ACCENT_POLICY = 19
 ACCENT_ENABLE_BLURBEHIND = 3
 ACCENT_ENABLE_ACRYLICBLURBEHIND = 4
+REVEAL_FOCUS_GRACE_SECONDS = 0.8
 
 
 class ACCENT_POLICY(Structure):
@@ -215,6 +217,7 @@ class OverlayManager:
         self.on_reveal_requested = on_reveal_requested
         self.temporarily_revealed_hwnd: int | None = None
         self.reveal_became_foreground = False
+        self.reveal_requested_at = 0.0
 
     def sync_targets(self, targets: dict[int, str]) -> None:
         current = set(self.target_titles)
@@ -226,13 +229,10 @@ class OverlayManager:
         for hwnd in requested:
             self.target_titles[hwnd] = targets[hwnd]
 
-        for hwnd in requested - current:
-            if windows.is_window(hwnd) and windows.is_window_visible(hwnd) and not windows.is_window_minimized(hwnd):
-                self.overlays[hwnd] = self._create_overlay(hwnd, targets[hwnd])
-
     def set_enabled(self, enabled: bool) -> None:
         self.enabled = enabled
         if not enabled:
+            self._clear_temporary_reveal()
             for overlay in self.overlays.values():
                 overlay.hide()
 
@@ -246,6 +246,7 @@ class OverlayManager:
             return
         self.temporarily_revealed_hwnd = hwnd
         self.reveal_became_foreground = False
+        self.reveal_requested_at = monotonic()
         self.overlays[hwnd].hide()
 
     def toggle(self) -> bool:
@@ -255,16 +256,17 @@ class OverlayManager:
     def update(self) -> list[int]:
         stale: list[int] = []
         foreground = windows.get_foreground_window()
+        now = monotonic()
 
         if self.temporarily_revealed_hwnd is not None:
             if self.temporarily_revealed_hwnd not in self.target_titles:
-                self.temporarily_revealed_hwnd = None
-                self.reveal_became_foreground = False
+                self._clear_temporary_reveal()
             elif foreground == self.temporarily_revealed_hwnd:
                 self.reveal_became_foreground = True
             elif self.reveal_became_foreground and foreground not in (0, self.temporarily_revealed_hwnd):
-                self.temporarily_revealed_hwnd = None
-                self.reveal_became_foreground = False
+                self._clear_temporary_reveal()
+            elif not self.reveal_became_foreground and now - self.reveal_requested_at >= REVEAL_FOCUS_GRACE_SECONDS:
+                self._clear_temporary_reveal()
 
         for hwnd in list(self.target_titles):
             if not windows.is_window(hwnd):
@@ -276,8 +278,7 @@ class OverlayManager:
             is_minimized = windows.is_window_minimized(hwnd)
 
             if self.temporarily_revealed_hwnd == hwnd and (not is_visible or is_minimized):
-                self.temporarily_revealed_hwnd = None
-                self.reveal_became_foreground = False
+                self._clear_temporary_reveal()
 
             if not self.enabled:
                 overlay = self.overlays.get(hwnd)
@@ -315,12 +316,16 @@ class OverlayManager:
         self._destroy_overlay(hwnd)
         self.target_titles.pop(hwnd, None)
         if self.temporarily_revealed_hwnd == hwnd:
-            self.temporarily_revealed_hwnd = None
-            self.reveal_became_foreground = False
+            self._clear_temporary_reveal()
 
     def clear(self) -> None:
         for hwnd in list(self.target_titles):
             self.remove_target(hwnd)
+
+    def _clear_temporary_reveal(self) -> None:
+        self.temporarily_revealed_hwnd = None
+        self.reveal_became_foreground = False
+        self.reveal_requested_at = 0.0
 
     def _create_overlay(self, hwnd: int, title: str) -> WindowOverlay:
         return WindowOverlay(
